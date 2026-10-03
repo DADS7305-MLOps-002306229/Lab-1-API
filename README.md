@@ -131,18 +131,3 @@ Both API schemas require all fields, reject extra fields, and disallow non-finit
 | `B` | Historical race-derived index |
 | `LSTAT` | Historical lower-status population indicator (%) |
 | `MEDV` | Target: median home value in thousands of dollars |
-
-The Streamlit UI constrains inputs to nonnegative values, caps percentage fields at 100 and `B` at 396.9, and uses dedicated controls for `CHAS` and `RAD`. The API schemas do not enforce those same UI constraints.
-
-This is an educational model using historical Boston Housing data, including demographic features that reflect the dataset's historical framing. Predictions are expressed in historical dollars and are not current property valuations. Linear regression can also return negative values; Streamlit displays a warning when this occurs.
-
-## Troubleshooting and verification
-
-- **Missing `loguru` or `uvicorn`:** run the extra installation command in Setup using the same Python environment as the application.
-- **Import errors for `src` or `util`:** launch from the repository root using the commands above.
-- **Streamlit reports a missing model:** run `python -m src.model` to create `model/model.pkl`.
-- **Flask predictions differ after retraining:** update its separate model copy and restart Flask.
-- **Model loading fails or warns about scikit-learn versions:** retrain with your installed dependencies and refresh the Flask copy as needed.
-- **Port already in use:** change Uvicorn's `--port`, use `python -m flask --app flask_lab.main run --port 8002` for Flask, or add `--server.port 8502` to the Streamlit command.
-
-The repository does not include an automated test suite. For a manual check, start either API and send the sample request, then open the Flask or Streamlit form and submit the default example values. Training logs provide the model's test-set metrics.
