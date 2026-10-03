@@ -5,3 +5,6 @@ scikit-learn
 joblib
 flask
 streamlit
+loguru
+pydantic
+uvicorn[standard]

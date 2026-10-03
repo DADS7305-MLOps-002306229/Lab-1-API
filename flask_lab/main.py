@@ -2,14 +2,14 @@ from pathlib import Path
 
 import joblib
 import pandas as pd
-from flask import Flask, request, response
+from flask import Flask, request, Response, render_template
 from pydantic import BaseModel, ConfigDict
 
 from src.model import train_model
 from util.log import log
 
 
-ROOT_DIR = Path(__file__).resolve().parent.parent
+ROOT_DIR = Path(__file__).resolve().parent
 MODEL_PATH = ROOT_DIR / "model" / "model.pkl"
 
 FEATURES = [
@@ -55,8 +55,13 @@ class Parameters(BaseModel):
 
 app = Flask(__name__)
 
-@app.post("/predict", methods=['POST'])
-def predict(data: Parameters):
+@app.route("/")
+def home():
+    return render_template("index.html")
+
+@app.route("/predict", methods=['POST'])
+def predict():
+    data = Parameters(**request.get_json())
     df = pd.DataFrame([data.model_dump()], columns=FEATURES)
     prediction = model.predict(df)
 
