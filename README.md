@@ -55,16 +55,6 @@ python -m src.model
 
 Training loads the 506 rows and 14 columns in `data/housing.csv`, uses the 13 input columns to predict `MEDV`, and fits scikit-learn's `LinearRegression` without an additional preprocessing pipeline. It uses a shuffled 70% training / 30% test split with `random_state=42`, logs MSE, RMSE, and R² on the test set, and writes the model to `model/model.pkl`, overwriting any existing file there.
 
-Both model files are included in the repository. FastAPI loads `model/model.pkl` at startup and trains a model if that file is absent. Flask loads `flask_lab/model/model.pkl`; if its file is absent, it runs the shared training function (which writes the root model) and also saves a Flask copy. Streamlit requires the root model to exist and loads it when a prediction is submitted.
-
-To make Flask use a newly trained root model, copy it before starting or restarting Flask:
-
-```bash
-python -c "from shutil import copyfile; copyfile('model/model.pkl', 'flask_lab/model/model.pkl')"
-```
-
-Restart FastAPI or Flask after replacing their model files because they keep the loaded model in memory. The two included files are identical and contain scikit-learn version metadata `1.9.1`; retrain in your active environment if loading produces a version compatibility warning or error.
-
 ## Run the applications
 
 Each application runs independently. Use separate terminals with the environment activated if running them together.

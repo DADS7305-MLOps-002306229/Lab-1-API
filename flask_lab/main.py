@@ -9,7 +9,7 @@ from src.model import train_model
 from util.log import log
 
 
-ROOT_DIR = Path(__file__).resolve().parent
+ROOT_DIR = Path(__file__).resolve().parent.parent
 MODEL_PATH = ROOT_DIR / "model" / "model.pkl"
 
 FEATURES = [
