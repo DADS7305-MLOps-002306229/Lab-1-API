@@ -1,0 +1,175 @@
+name: Train and Publish App
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pipeline-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  train:
+    name: Train and Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt gunicorn
+
+      - name: Train fresh model
+        run: |
+          rm -f model/model.pkl
+          python -m src.model
+          python -m pip freeze > requirements-lock.txt
+
+      - name: Test model and Flask app
+        run: |
+          python - <<'PY'
+          import math
+          import pandas as pd
+          from flask_lab.main import app, model, FEATURES
+          from src.data import load_data
+
+          row = load_data().drop(columns=["MEDV"]).iloc[0]
+          payload = row.to_dict()
+
+          expected = float(
+              model.predict(pd.DataFrame([payload], columns=FEATURES))[0]
+          )
+          assert math.isfinite(expected)
+
+          client = app.test_client()
+          assert client.get("/").status_code == 200
+
+          response = client.post("/predict", json=payload)
+          assert response.status_code == 200
+          assert math.isclose(response.get_json()["prediction"], expected)
+
+          print("Model and Flask checks passed.")
+          PY
+
+      - name: Generate Dockerfile
+        run: |
+          cat > Dockerfile.ci <<'EOF'
+          FROM python:3.13-slim
+
+          WORKDIR /app
+
+          ENV PYTHONDONTWRITEBYTECODE=1
+          ENV PYTHONUNBUFFERED=1
+          ENV PORT=8001
+
+          COPY requirements-lock.txt ./
+          RUN pip install --no-cache-dir -r requirements-lock.txt
+
+          COPY src ./src
+          COPY util ./util
+          COPY flask_lab ./flask_lab
+          COPY model/model.pkl ./model/model.pkl
+
+          RUN useradd --uid 10001 --create-home appuser
+          USER appuser
+
+          EXPOSE 8001
+
+          CMD ["sh", "-c", "exec gunicorn --bind 0.0.0.0:${PORT} --workers 2 flask_lab.main:app"]
+          EOF
+
+      - name: Build image
+        run: docker build -f Dockerfile.ci -t lab-api:test .
+
+      - name: Test running container
+        run: |
+          docker run -d --name lab-api -p 8001:8001 lab-api:test
+          trap 'docker logs lab-api; docker rm -f lab-api' EXIT
+
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://localhost:8001/ > /dev/null; then
+              break
+            fi
+            sleep 2
+          done
+
+          curl --fail http://localhost:8001/
+
+          curl --fail \
+            -H "Content-Type: application/json" \
+            -d '{"CRIM":0.00632,"ZN":18,"INDUS":2.31,"CHAS":0,"NOX":0.538,"RM":6.575,"AGE":65.2,"DIS":4.09,"RAD":1,"TAX":296,"PTRATIO":15.3,"B":396.9,"LSTAT":4.98}' \
+            http://localhost:8001/predict
+
+      - name: Save tested image
+        run: docker save lab-api:test | gzip > app-image.tar.gz
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-image
+          path: app-image.tar.gz
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload trained model
+        uses: actions/upload-artifact@v4
+        with:
+          name: trained-model
+          path: |
+            model/model.pkl
+            requirements-lock.txt
+          retention-days: 30
+          if-no-files-found: error
+
+  publish:
+    name: Publish to GHCR
+    needs: train
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Download tested image
+        uses: actions/download-artifact@v4
+        with:
+          name: app-image
+
+      - name: Load image
+        run: gunzip -c app-image.tar.gz | docker load
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag and publish image
+        run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
+
+          docker tag lab-api:test "$IMAGE:latest"
+          docker tag lab-api:test "$IMAGE:sha-$GITHUB_SHA"
+
+          docker push "$IMAGE:latest"
+          docker push "$IMAGE:sha-$GITHUB_SHA"
